@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>휘매쓰 연산 챌린지!</title>
+    <title>수카드</title>
     <style>
         /* 폰트 로드 */
         @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
@@ -27,7 +27,11 @@
             font-size: 48px;
             margin-bottom: 30px;
         }
-        #difficulty-selection, #game-screen, #result-screen {
+        /* 화면 영역들 숨김 */
+        #player-info-screen,
+        #difficulty-selection,
+        #game-screen,
+        #result-screen {
             display: none;
         }
         .button {
@@ -132,14 +136,43 @@
             background-color: #32cd32;
             transition: width 0.1s;
         }
+        /* 이름 입력 필드 스타일 */
+        #player-name {
+            padding: 12px;
+            font-size: 20px;
+            width: 80%;
+            max-width: 300px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        #player-name:focus {
+            border-color: #32cd32;
+        }
+        #response {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+            white-space: pre-wrap; /* JSON 형태 보기 좋게 */
+        }
     </style>
 </head>
 <body>
 
 <div id="game-container">
-    <h1>휘매쓰 연산 챌린지!</h1>
+    <!-- 게임 이름 변경: "휘매쓰 연산 챌린지!" -> "수카드" -->
+    <h1>수카드</h1>
 
-    <!-- 난이도 선택 화면 -->
+    <!-- (1) 첫 화면: 이름 입력 화면 -->
+    <div id="player-info-screen">
+        <p style="font-size:24px; color:#333;">이름을 입력하세요</p>
+        <input type="text" id="player-name" placeholder="이름을 입력해주세요" />
+        <br>
+        <button class="button" onclick="goToDifficultySelection()">다음</button>
+    </div>
+
+    <!-- (2) 난이도 선택 화면 -->
     <div id="difficulty-selection">
         <p style="font-size: 24px; color: #333;">난이도를 선택하세요:</p>
         <button class="button" onclick="startGame('상')">상</button>
@@ -147,7 +180,7 @@
         <button class="button" onclick="startGame('하')">하</button>
     </div>
 
-    <!-- 게임 화면 -->
+    <!-- (3) 게임 화면 -->
     <div id="game-screen">
         <div id="total-time">총 소요 시간: <span id="total-time-elapsed">0</span>초</div>
         <div id="chance">남은 기회: <span id="remaining-chances">3</span>/3</div>
@@ -161,17 +194,60 @@
         <div id="feedback"></div>
     </div>
 
-    <!-- 결과 화면 -->
+    <!-- (4) 결과 화면 -->
     <div id="result-screen">
         <h2>게임 종료!</h2>
         <p>최종 점수: <span id="final-score"></span></p>
         <p>총 소요 시간: <span id="final-time"></span>초</p>
+        <!-- 점수 전송 버튼 추가 -->
+        <button class="button" onclick="submitScore()">점수 전송</button>
+        <!-- 다시 시작 버튼 -->
         <button class="button" onclick="restartGame()">다시 시작</button>
+        <!-- 서버 응답 표시 영역 -->
+        <div id="response"></div>
     </div>
 </div>
 
 <script>
-    // 문제 리스트
+    // (A) 서버에 데이터 전송하는 함수 추가
+    //    요청하신 saveData 함수를 그대로 삽입하며,
+    //    전송 성공/실패 여부는 #response에 표시.
+    async function saveData(game, name, score, elapsedTime) {
+        const FUNCTION_URL = "https://us-central1-record-f420d.cloudfunctions.net/report";
+
+        const requestData = {
+            game,
+            name,
+            score: parseInt(score, 10),
+            elapsedTime: parseInt(elapsedTime, 10)
+        };
+
+        try {
+            const response = await fetch(FUNCTION_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            const responseData = await response.json();
+
+            if (response.ok) {
+                document.getElementById('response').innerText =
+                    `성공: ${JSON.stringify(responseData, null, 2)}`;
+            } else {
+                document.getElementById('response').innerText =
+                    `오류: ${JSON.stringify(responseData, null, 2)}`;
+            }
+        } catch (error) {
+            console.error('요청 실패:', error);
+            document.getElementById('response').innerText =
+                `네트워크 오류: ${error.message}`;
+        }
+    }
+
+    // (B) 문제 리스트(원본 절대 생략 불가)
     const problems = [
         // 가장 큰 세자리 수 만들기
         { questionType: "largest", numbers: [3, 5, 7], answer: "753" },
@@ -244,10 +320,13 @@
     let remainingChances = 3;
     let energyWidth = 100;
     let timerInterval;
+    let playerName = ""; // 플레이어 이름 저장
 
+    const playerInfoScreen = document.getElementById('player-info-screen');
     const difficultySelection = document.getElementById('difficulty-selection');
     const gameScreen = document.getElementById('game-screen');
     const resultScreen = document.getElementById('result-screen');
+
     const currentScoreElement = document.getElementById('current-score');
     const questionElement = document.getElementById('question');
     const answerInput = document.getElementById('answer-input');
@@ -258,7 +337,9 @@
     const remainingChancesElement = document.getElementById('remaining-chances');
     const energyElement = document.getElementById('energy');
 
+    // (C) 화면 전환 함수
     function showScreen(screen) {
+        playerInfoScreen.style.display = 'none';
         difficultySelection.style.display = 'none';
         gameScreen.style.display = 'none';
         resultScreen.style.display = 'none';
@@ -266,6 +347,18 @@
         screen.style.display = 'block';
     }
 
+    // (D) 첫 화면에서 이름을 입력받고 난이도 화면으로 이동
+    function goToDifficultySelection() {
+        const nameInput = document.getElementById('player-name').value.trim();
+        if (nameInput === "") {
+            alert("이름을 입력해주세요!");
+            return;
+        }
+        playerName = nameInput;
+        showScreen(difficultySelection);
+    }
+
+    // (E) 난이도 선택 후 게임 시작
     function startGame(difficulty) {
         selectedDifficulty = difficulty;
         scoreIncrement = difficultyLevels[difficulty].score;
@@ -275,10 +368,10 @@
         remainingChances = 3;
         energyWidth = 100;
 
-        problems.sort(() => Math.random() - 0.5); // 문제 섞기
+        // 문제 섞기
+        problems.sort(() => Math.random() - 0.5);
 
         remainingChancesElement.textContent = remainingChances;
-
         showScreen(gameScreen);
         updateScore();
         nextProblem();
@@ -286,15 +379,18 @@
         setInterval(updateTotalTime, 1000);
     }
 
+    // (F) 점수 업데이트
     function updateScore() {
         currentScoreElement.textContent = score;
     }
 
+    // (G) 총 소요 시간 업데이트
     function updateTotalTime() {
         totalTimeElapsed = Math.floor((Date.now() - startTime) / 1000);
         totalTimeElement.textContent = totalTimeElapsed;
     }
 
+    // (H) 다음 문제
     function nextProblem() {
         if (remainingChances <= 0) {
             endGame();
@@ -315,7 +411,8 @@
         questionText.textContent = `수카드 `;
         questionText.style.display = 'inline';
 
-        numberCards.sort(() => Math.random() - 0.5); // 숫자 섞기
+        // 숫자 섞기
+        numberCards.sort(() => Math.random() - 0.5);
         numberCards.forEach((number) => {
             const card = document.createElement('div');
             card.className = 'number-card';
@@ -324,7 +421,10 @@
         });
 
         const questionTail = document.createElement('div');
-        questionTail.textContent = `을 한 번씩만 사용하여 가장 ${currentProblem.questionType === 'largest' ? '큰' : '작은'} 세자리 수를 만드세요.`;
+        questionTail.textContent =
+            `을 한 번씩만 사용하여 가장 ${
+                currentProblem.questionType === 'largest' ? '큰' : '작은'
+            } 세자리 수를 만드세요.`;
         questionTail.style.display = 'inline';
 
         questionElement.appendChild(questionText);
@@ -337,6 +437,7 @@
         startTimer();
     }
 
+    // (I) 제한 시간 타이머
     function startTimer() {
         clearInterval(timerInterval);
         const timeLimit = difficultyLevels[selectedDifficulty].time;
@@ -354,6 +455,7 @@
                 feedbackElement.textContent = '시간 초과!';
                 feedbackElement.style.color = 'red';
                 if (remainingChances > 0) {
+                    currentProblemIndex++;
                     nextProblem();
                 } else {
                     endGame();
@@ -362,6 +464,7 @@
         }, 100);
     }
 
+    // (J) 정답 제출
     function submitAnswer() {
         clearInterval(timerInterval);
         const userAnswer = answerInput.value.trim();
@@ -387,6 +490,7 @@
         }
     }
 
+    // (K) 게임 종료
     function endGame() {
         clearInterval(timerInterval);
         showScreen(resultScreen);
@@ -394,18 +498,26 @@
         finalTimeElement.textContent = totalTimeElapsed;
     }
 
+    // (L) 다시 시작
     function restartGame() {
-        showScreen(difficultySelection);
+        document.getElementById('response').innerText = "";
+        showScreen(playerInfoScreen);
     }
 
+    // (M) Enter 키 입력 시 제출
     function handleKeyPress(event) {
         if (event.key === 'Enter') {
             submitAnswer();
         }
     }
 
-    // 게임 시작 시 난이도 선택 화면 표시
-    showScreen(difficultySelection);
+    // (N) 점수 전송 버튼 동작
+    function submitScore() {
+        saveData("수카드", playerName, score, totalTimeElapsed);
+    }
+
+    // (O) 페이지 로드 시 첫 화면(이름 입력 화면) 표시
+    showScreen(playerInfoScreen);
 </script>
 
 </body>
